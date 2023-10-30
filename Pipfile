@@ -4,15 +4,16 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
+s3fs = "==2023.10.0"
 datetime = "*"
 gspread = "*"
 tqdm = "*"
 mmh3 = "*"
 boto3 = "*"
 botocore = "*"
+pandas = ">=2"
 
 [dev-packages]
-pandas = "*"
 pyarrow = "*"
 pandasgui = "*"
 

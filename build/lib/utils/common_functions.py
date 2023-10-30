@@ -8,7 +8,6 @@ _logs_common_func = logging.getLogger(__name__)
 try:
     import pandas
     from pandasgui import show
-    show_gui = show
 except:
     pass
 
@@ -222,3 +221,25 @@ def measure_time(id: str = None, suffix:str = ''):
     unique_id, thetime = get_uuid(), default_timer()
     _TIMEIT_STORE.update({unique_id: thetime})
     return unique_id
+
+
+def parquet_normalise(data: pandas.DataFrame) -> pandas.DataFrame:
+    """Used to remove unsupported format of data in a dataframe before writing to parquet. Handles list of multiple types of objects. These are not supported and all objects have to be of the same type. If such an instance is found, the columnm value is converted to string
+
+    Errors handled:
+    - cannot mix list and non-list, non-null values
+    - ValueError: Can't infer object conversion type: 0
+    """
+    data = data.to_dict('records')
+    for row in data:
+        for k,v in row.items():
+            if isinstance(v, list):
+                if not all([isinstance(_, type(v[0])) for _ in v]):
+                    row[k] = str(v)
+
+    data = pandas.DataFrame(data)
+    for col in data.columns:
+            data_types = data[col].apply(lambda x: type(x)).unique()
+            if list in data_types and len(data_types) > 1:
+                data[col] = data[col].astype(str)
+    return data
