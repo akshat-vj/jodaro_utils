@@ -7,21 +7,24 @@ from concurrent.futures import ThreadPoolExecutor
 from utils.common_functions import list_distribute_into_blocks
 import json
 import logging
+
+# Set up logging
 _logs_file_ops = logging.getLogger(__name__)
+
 try:
-    from tqdm import tqdm
+    # Import necessary libraries
     import numpy as np
     import pandas as pd
-    import pyarrow.parquet as pq
-    from pyarrow.lib import ArrowInvalid
-    import boto3
     import boto3
     from botocore.errorfactory import ClientError
     s3 = boto3.client('s3')
     s3_resource = boto3.resource('s3')
+    from pyarrow.lib import ArrowInvalid
+    import pyarrow.parquet as pq
+    from tqdm import tqdm
 except Exception as e:
-    _logs_file_ops.warning(f'Failed imports: {e}')
-
+    # Log warning if import fails
+    _logs_file_ops.warning(f'Failed import: {e}')
 
 @lru_cache(maxsize=None)
 def _bucket_prefix(path):
@@ -68,6 +71,7 @@ def listdir(folder_path):
             except KeyError:
                 break
 
+        # Log number of files and folders found
         _logs_file_ops.info(f'{len(files)} files + {len(folders)} folders in {bucket_name}/{prefix}')
         return [f's3://{bucket_name}/{_}' for _ in keys]
     else:
@@ -208,24 +212,39 @@ def read_parquets(
     Returns:
         pandas.DataFrame: A pandas dataframe with all the parquet files concatenated
     """
-
+    # Increase threads to 500 if path is not s3
     if not any(['s3:' in path, any(['s3:' in _ for _ in path])]):
         threads=500
+
     def _read_parquet_file(file_path, columns=None, retry_number = 0):
         """Read a single parquet file
+
+        Args:
+            file_path (str): Path to the parquet file
+            columns (list[str] | None, optional): Specify columns to be read from the parquet file
+            retry_number (int, optional): Number of times the function has retried
+
+        Returns:
+            pandas.DataFrame | None: A pandas dataframe with the contents of the parquet file, or None if the file could not be read
         """
+        # Return None if max retries have been exceeded
         if retry_number >= max_retries:
             _logs_file_ops.error(f'Failed for {file_path} after {retry_number} retries')
             return None
         try:
+            # Read the parquet file
             parquet_file  = pq.ParquetFile(file_path)
+            # Return None if the file is empty
             if parquet_file.metadata.num_rows == 0:
                 return None
+            # Filter columns if specified
             if columns is not None:
                 columns = [_ for _ in columns if _ in parquet_file.schema_arrow.names]
                 if len(columns)==0: return None
+            # Return the contents of the parquet file as a pandas dataframe
             return (parquet_file.read(columns=columns).to_pandas())
         except Exception as e:
+            # Retry if an exception is raised
             if isinstance(e, ArrowInvalid):
                 _logs_file_ops.warning(f'Skipping invalid parquet file: {file_path}')
                 return None
@@ -239,33 +258,49 @@ def read_parquets(
 
     def _read_list_of_parquet_files(file_list: list[str], columns=None):
         """Read a list of parquet files serially using `_read_parquet_file`
+
+        Args:
+            file_list (list[str]): List of paths to parquet files
+            columns (list[str] | None, optional): Specify columns to be read from the parquet file
+
+        Returns:
+            pandas.DataFrame: A pandas dataframe with the contents of all the parquet files concatenated
         """
+        # Concatenate the contents of all the parquet files in the list
         df = pd.concat([
                 _read_parquet_file(file_path=f, columns=columns)
                 for f in tqdm(file_list, desc = 'Reading...', leave = False)
             ])
+        # Replace np.nan with replace_npnan if specified
         if replace_npnan is False:
             return df
         else:
             _logs_file_ops.warning(f'[!] Replace np.nan with {replace_npnan}')
             return df.replace(np.nan, replace_npnan)
 
+    # Determine if path is a string or a list
     if isinstance(path, str):
         if '.parquet' in path:
+            # Read a single parquet file
             return pd.read_parquet(path=path, columns=columns)
         else:
+            # Get a list of all the parquet files in the folder
             list_of_files = [_ for _ in listdir(path) if '.parquet' in _]
     elif isinstance(path, list):
+        # Use the provided list of paths to parquet files
         list_of_files = path
 
+    # Return None if no parquet files were found
     if len(list_of_files) == 0:
         _logs_file_ops.warning(f'No .parquet files found in {path}')
         return None
 
+    # Distribute the list of files into blocks for parallel processing
     if threads:
         file_list_of_lists = list_distribute_into_blocks(list_of_files, threads)
     else:
         file_list_of_lists = [[_] for _ in list_of_files]
+    # Read the parquet files in parallel using multiple threads
     with ThreadPoolExecutor(max_workers=threads) as executor:
         futures = [
             executor.submit(_read_list_of_parquet_files, file_list, columns)
@@ -273,4 +308,5 @@ def read_parquets(
         ]
         sublists = [future.result() for future in futures]
 
+    # Concatenate the contents of all the sublists
     return pd.concat(sublists)

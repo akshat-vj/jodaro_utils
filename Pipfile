@@ -11,7 +11,8 @@ tqdm = "*"
 mmh3 = "*"
 boto3 = "*"
 botocore = "*"
-pandas = ">=2"
+pandas = "*"
+numpy = "*"
 
 [dev-packages]
 pyarrow = "*"

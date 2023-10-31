@@ -3,10 +3,12 @@
 from functools import lru_cache
 import re
 import logging
+import pandas
 _logs_common_func = logging.getLogger(__name__)
+from timeit import default_timer
+default_timer = default_timer
 
 try:
-    import pandas
     from pandasgui import show
 except:
     pass
@@ -34,8 +36,6 @@ def get_uuid_dated(date: str = None) -> str:
         date = datetime.today().date()
     return f"{str(date)}_{str(get_uuid().split('-', 1)[0])}".replace('-', '')
 
-from timeit import default_timer
-default_timer = default_timer
 
 def extract_url_parameters(url):
     from urllib.parse import urlparse, parse_qs
@@ -132,17 +132,23 @@ def pickle_to_lzma(raw: str, overwrite = True, delete_original = False) -> bool:
     """Compresses and saves a pickle file with LZMA compression. LZMA has one of the highest compression ratios but is lower on performance
 
     Args:
-        file_path (str): Provide the full file path to the pickle file
+        raw (str): Provide the full file path to the pickle file
+        overwrite (bool): If True, overwrite the compressed file if it already exists
+        delete_original (bool): If True, delete the original file after compression
 
     Returns:
         bool: Return True if the entire operation succeeded
     """
     import pickle, lzma, os
     success = False
+
+    # Check if the file is already compressed using lzma
     if '.lzma' in raw:
         _logs_common_func.warning(f'Looks like the file is already compressed using lzma: {raw}')
         success = False
         return success
+
+    # Load the data from the pickle file
     try:
         with open(raw, 'rb') as f:
             data = pickle.load(f)
@@ -150,6 +156,8 @@ def pickle_to_lzma(raw: str, overwrite = True, delete_original = False) -> bool:
         _logs_common_func.error(f'Failed to read {raw} due to :{e}')
         success = False
         return success
+
+    # Compress the data using lzma and save it to a new file
     try:
         compressed_file_name = raw + '.lzma'
 
@@ -163,6 +171,7 @@ def pickle_to_lzma(raw: str, overwrite = True, delete_original = False) -> bool:
         _logs_common_func.error(f'Failed to write compressed file to {compressed_file_name} due to :{e}')
         success = False
     finally:
+        # Delete the original file if requested and the compression was successful
         if delete_original and success:
             _logs_common_func.warning(f'[!] Deleting {raw}')
             os.remove(raw)
